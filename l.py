@@ -19,7 +19,7 @@ import datetime
 import platform
 from pathlib import Path
 
-def copy_to_startups():
+def copy_to_startup():
     try:
         import os
         import ctypes
