@@ -857,38 +857,30 @@ def format_file_info(path):
         return f"{path}\n  [Access Denied]\n"
 
 def collect_file_inventory():
-    import string
-    from pathlib import Path
-    
+    home = Path.home()
     output = []
-    all_drives = []
     
-    for letter in string.ascii_uppercase:
-        drive = f"{letter}:\\"
-        if os.path.exists(drive):
-            all_drives.append(drive)
+    folders = ["Desktop", "Downloads", "Documents", "Pictures", "Music", "Videos"]
     
-    for drive in all_drives:
-        output.append(f"\n{'='*60}\nDRIVE: {drive}\n{'='*60}\n")
+    for folder in folders:
+        folder_path = home / folder
+        output.append(f"\n{'='*60}\n{folder.upper()}\n{'='*60}\n")
         
-        try:
-            for root, dirs, files in os.walk(drive):
-                skip_dirs = ['Windows', 'System32', 'System Volume Information', '$Recycle.Bin', 
-                            'Recovery', 'Program Files', 'Program Files (x86)', 'AppData']
-                dirs[:] = [d for d in dirs if d not in skip_dirs]
-                
-                for file in files:
+        if folder_path.exists():
+            try:
+                for item in folder_path.rglob("*"):
                     try:
-                        full_path = os.path.join(root, file)
-                        output.append(full_path)
+                        if item.is_file():
+                            output.append(str(item))
                     except:
                         continue
-        except Exception as e:
-            output.append(f"[!] Access denied on {drive}: {e}")
-            continue
+            except Exception as e:
+                output.append(f"Access denied: {folder}\n")
+        else:
+            output.append(f"Folder not found: {folder}\n")
     
     if output:
-        inventory_file = os.path.join(BASE_OUTPUT_DIR, "full_file_inventory.txt")
+        inventory_file = os.path.join(BASE_OUTPUT_DIR, "file_inventory.txt")
         with open(inventory_file, 'w', encoding='utf-8') as f:
             f.write("\n".join(output))
         return inventory_file
